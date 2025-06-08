@@ -18,7 +18,7 @@ import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.plugin.java.JavaPlugin;
-import com.example.randomdeathpawn.SchedulerAdapter;
+import org.bukkit.scheduler.BukkitRunnable;
 
 import java.io.File;
 import java.io.IOException;
@@ -68,9 +68,6 @@ public class RandomDeathpawn extends JavaPlugin implements Listener {
     // ランダムやタイマーなどで使用
     private final Random random = new Random();
 
-    // Folia 対応スケジューラ
-    private SchedulerAdapter scheduler;
-
     // ★追加★ livedata.yml 用
     private File liveDataFile;
     private YamlConfiguration liveDataYaml;
@@ -83,8 +80,6 @@ public void onEnable() {
     defaultDeathLimit = config.getInt("deathLimit", 3);
     defaultRevivalTimeHours = config.getLong("revivalTimeHours", 1);
     spawnRange = config.getInt("spawnRange", 10000);
-
-    scheduler = new SchedulerAdapter(this);
     
     loadData();
 
@@ -214,7 +209,7 @@ public void onPlayerJoin(PlayerJoinEvent event) {
         Bukkit.broadcastMessage(coordMessage);
 
         // 自分への通知にも座標を含めて遅延後に送信
-        scheduler.runTaskLater(() -> {
+        Bukkit.getScheduler().runTaskLater(this, () -> {
             player.sendMessage(coordMessage);
             player.sendMessage(String.format("§a初参加なのでランダムスポーン地点 [x: %d, y: %d, z: %d] へテレポートしました！",
                     spawn.getBlockX(),
@@ -227,7 +222,7 @@ public void onPlayerJoin(PlayerJoinEvent event) {
     }
 
     remainingLives.putIfAbsent(uuid, defaultDeathLimit);
-    scheduler.runTaskLater(() -> checkAndSetSpectatorIfNeeded(player), 20L);
+    Bukkit.getScheduler().runTaskLater(this, () -> checkAndSetSpectatorIfNeeded(player), 20L);
 }
 
     @EventHandler
@@ -279,7 +274,7 @@ public void onPlayerRespawn(PlayerRespawnEvent event) {
     Bukkit.broadcastMessage(coordMessage);
 
     // 自分には数秒遅らせて通知
-    scheduler.runTaskLater(() -> {
+    Bukkit.getScheduler().runTaskLater(this, () -> {
         player.sendMessage(coordMessage);
     }, 40L);  // 約2秒後に送信 (1秒=20ticks)
 }
@@ -293,7 +288,7 @@ public void onPlayerRespawn(PlayerRespawnEvent event) {
         long delay = nextResetTime - now;
         if (delay < 0) delay = 0;
 
-        scheduler.runTaskTimer(() -> {
+        Bukkit.getScheduler().runTaskTimer(this, () -> {
             for (UUID uuid : remainingLives.keySet()) {
                 remainingLives.put(uuid, defaultDeathLimit);
             }
@@ -314,7 +309,7 @@ public void onPlayerRespawn(PlayerRespawnEvent event) {
     }
 
     private void startWeeklyResetAnnouncementTask() {
-        scheduler.runTaskTimer(() -> {
+        Bukkit.getScheduler().runTaskTimer(this, () -> {
             long remainingMillis = nextResetTime - System.currentTimeMillis();
             if (remainingMillis <= 0) return;
 
@@ -342,20 +337,23 @@ public void onPlayerRespawn(PlayerRespawnEvent event) {
     }
 
 private void startRevivalCheckTask() {
-    scheduler.runTaskTimer(() -> {
-        long now = System.currentTimeMillis();
-        for (Player p : Bukkit.getOnlinePlayers()) {
-            UUID uuid = p.getUniqueId();
-            Long revivalTime = revivalTimestamps.get(uuid);
-            if (revivalTime != null && revivalTime <= now && p.getGameMode() == GameMode.SPECTATOR) {
-                // ★デフォルトライフを付与して復活
-                remainingLives.put(uuid, defaultDeathLimit);
-                revivalTimestamps.remove(uuid);
-                releasePlayer(p);
-                saveData(); // 即時保存
+    new BukkitRunnable() {
+        @Override
+        public void run() {
+            long now = System.currentTimeMillis();
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                UUID uuid = p.getUniqueId();
+                Long revivalTime = revivalTimestamps.get(uuid);
+                if (revivalTime != null && revivalTime <= now && p.getGameMode() == GameMode.SPECTATOR) {
+                    // ★デフォルトライフを付与して復活
+                    remainingLives.put(uuid, defaultDeathLimit);
+                    revivalTimestamps.remove(uuid);
+                    releasePlayer(p);
+                    saveData(); // 即時保存
+                }
             }
         }
-    }, 20L, 20L);
+    }.runTaskTimer(this, 20L, 20L);
 }
 
 
