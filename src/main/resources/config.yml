@@ -8,4 +8,8 @@ revivalTimeHours: 16
 # 例: 10000 なら X/Zが -10000～10000 の乱数
 spawnRange: 10000
 
+# ランダムスポーンの対象となるメインワールド名
+# このワールドを基準にリスポーン地点が設定されます
+mainWorldName: "world"
+
 

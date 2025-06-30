@@ -51,9 +51,10 @@ public class RandomDeathpawn extends JavaPlugin implements Listener {
     private int defaultDeathLimit;
     private long defaultRevivalTimeHours;
     private int spawnRange;
+    private String mainWorldName; // ★変更: ハードコードをやめる
 
-    // サーバーのメインワールド名
-    private final String mainWorldName = "world";
+    // ★追加: メッセージ遅延用の定数
+    private static final long MESSAGE_DELAY_TICKS = 40L; // 2秒
 
     // プレイヤーごとの残りライフ
     private final Map<UUID, Integer> remainingLives = new HashMap<>();
@@ -80,6 +81,7 @@ public void onEnable() {
     defaultDeathLimit = config.getInt("deathLimit", 3);
     defaultRevivalTimeHours = config.getLong("revivalTimeHours", 1);
     spawnRange = config.getInt("spawnRange", 10000);
+    mainWorldName = config.getString("mainWorldName", "world"); // ★追加: コンフィグから読み込む
     
     loadData();
 
@@ -215,7 +217,7 @@ public void onPlayerJoin(PlayerJoinEvent event) {
                     spawn.getBlockX(),
                     spawn.getBlockY(),
                     spawn.getBlockZ()));
-        }, 40L); // 約2秒後
+        }, MESSAGE_DELAY_TICKS); // ★変更: 定数を使用
 
         remainingLives.put(uuid, defaultDeathLimit);
         saveData();
@@ -276,7 +278,7 @@ public void onPlayerRespawn(PlayerRespawnEvent event) {
     // 自分には数秒遅らせて通知
     Bukkit.getScheduler().runTaskLater(this, () -> {
         player.sendMessage(coordMessage);
-    }, 40L);  // 約2秒後に送信 (1秒=20ticks)
+    }, MESSAGE_DELAY_TICKS);  // ★変更: 定数を使用
 }
 
 
@@ -402,24 +404,38 @@ private void releasePlayer(Player player) {
     // /checklives, /addlives, /checkrevive コマンド
     //====================================================
    @Override
-public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-    if (!(sender instanceof Player)) {
-        sender.sendMessage("このコマンドはプレイヤーのみ実行可能です。");
-        return true;
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (!(sender instanceof Player)) {
+            sender.sendMessage("このコマンドはプレイヤーのみ実行可能です。");
+            return true;
+        }
+
+        Player player = (Player) sender;
+        String commandName = command.getName().toLowerCase();
+
+        switch (commandName) {
+            case "checklives":
+                return handleCheckLives(player);
+            case "addlives":
+                return handleAddLives(player, args);
+            case "checkrevive":
+                return handleCheckRevive(player);
+            default:
+                return false;
+        }
     }
 
-    Player player = (Player) sender;
-    UUID uuid = player.getUniqueId();
-    long now = System.currentTimeMillis();
-
-    if (command.getName().equalsIgnoreCase("checklives")) {
-        int lives = remainingLives.getOrDefault(uuid, defaultDeathLimit);
+    private boolean handleCheckLives(Player player) {
+        int lives = remainingLives.getOrDefault(player.getUniqueId(), defaultDeathLimit);
         player.sendMessage("§aあなたの残りライフは " + lives + " です。");
         return true;
     }
 
-    if (command.getName().equalsIgnoreCase("addlives")) {
+    private boolean handleAddLives(Player player, String[] args) {
+        UUID uuid = player.getUniqueId();
+
         if (args.length == 0) {
+            // /addlives
             remainingLives.put(uuid, defaultDeathLimit);
             player.sendMessage("§aあなたのライフを初期値 (" + defaultDeathLimit + ") にリセットしました。");
             if (player.getGameMode() == GameMode.SPECTATOR) {
@@ -431,9 +447,9 @@ public boolean onCommand(CommandSender sender, Command command, String label, St
         }
 
         if (args.length == 1) {
-            String arg = args[0];
+            // /addlives <数値> or /addlives <player>
             try {
-                int add = Integer.parseInt(arg);
+                int add = Integer.parseInt(args[0]);
                 int current = remainingLives.getOrDefault(uuid, defaultDeathLimit);
                 int newLives = current + add;
                 remainingLives.put(uuid, newLives);
@@ -444,11 +460,11 @@ public boolean onCommand(CommandSender sender, Command command, String label, St
                     revivalTimestamps.remove(uuid);
                 }
                 saveData();
-                return true;
             } catch (NumberFormatException e) {
-                OfflinePlayer target = Bukkit.getOfflinePlayer(arg);
-                if (target == null || target.getUniqueId() == null) {
-                    player.sendMessage("§cプレイヤー " + arg + " は存在しません。");
+                // 数値でない場合はプレイヤー名とみなす
+                OfflinePlayer target = Bukkit.getOfflinePlayer(args[0]);
+                if (!target.hasPlayedBefore() && !target.isOnline()) {
+                    player.sendMessage("§cプレイヤー " + args[0] + " は存在しません。");
                     return true;
                 }
                 UUID targetUuid = target.getUniqueId();
@@ -461,23 +477,21 @@ public boolean onCommand(CommandSender sender, Command command, String label, St
                     revivalTimestamps.remove(targetUuid);
                 }
                 saveData();
-                return true;
             }
+            return true;
         }
 
         if (args.length == 2) {
-            String playerName = args[0];
-            String amountStr = args[1];
-
-            OfflinePlayer target = Bukkit.getOfflinePlayer(playerName);
-            if (target == null || target.getUniqueId() == null) {
-                player.sendMessage("§cプレイヤー " + playerName + " は存在しません。");
+            // /addlives <player> <数値>
+            OfflinePlayer target = Bukkit.getOfflinePlayer(args[0]);
+             if (!target.hasPlayedBefore() && !target.isOnline()) {
+                player.sendMessage("§cプレイヤー " + args[0] + " は存在しません。");
                 return true;
             }
             UUID targetUuid = target.getUniqueId();
 
             try {
-                int add = Integer.parseInt(amountStr);
+                int add = Integer.parseInt(args[1]);
                 int current = remainingLives.getOrDefault(targetUuid, defaultDeathLimit);
                 int newLives = current + add;
                 remainingLives.put(targetUuid, newLives);
@@ -496,11 +510,14 @@ public boolean onCommand(CommandSender sender, Command command, String label, St
             return true;
         }
 
-        player.sendMessage("§c用法: /addlives <player> <数値> または /addlives <数値>");
+        player.sendMessage("§c用法: /addlives <player> <数値> または /addlives <数値> または /addlives");
         return true;
     }
 
-    if (command.getName().equalsIgnoreCase("checkrevive")) {
+    private boolean handleCheckRevive(Player player) {
+        UUID uuid = player.getUniqueId();
+        long now = System.currentTimeMillis();
+
         int lives = remainingLives.getOrDefault(uuid, defaultDeathLimit);
         long revivalTime = revivalTimestamps.getOrDefault(uuid, 0L);
 
@@ -514,7 +531,6 @@ public boolean onCommand(CommandSender sender, Command command, String label, St
         }
         if (revivalTime <= now) {
             player.sendMessage("§aあなたはすでに復活可能な時間を過ぎています。復帰処理を行います。");
-
             remainingLives.put(uuid, defaultDeathLimit);
             revivalTimestamps.remove(uuid);
             releasePlayer(player);
@@ -540,9 +556,6 @@ public boolean onCommand(CommandSender sender, Command command, String label, St
         player.sendMessage("§aあなたが復活できるまで残り §e" + result + " §aです。");
         return true;
     }
-
-    return false;
-}
 
 private void checkAndSetSpectatorIfNeeded(Player player) {
     UUID uuid = player.getUniqueId();
