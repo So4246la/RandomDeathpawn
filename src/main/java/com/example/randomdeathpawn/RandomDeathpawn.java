@@ -93,6 +93,13 @@ public void onEnable() {
 
     getLogger().info("RandomDeathpawn Ver1.3 が有効になりました！");
 
+    // サーバー再起動時にオンライン中のプレイヤーの観戦/復帰状態を整合
+    Bukkit.getScheduler().runTask(this, () -> {
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            checkAndSetSpectatorIfNeeded(p);
+        }
+    });
+
     }
 
 
@@ -294,6 +301,8 @@ public void onPlayerRespawn(PlayerRespawnEvent event) {
             for (UUID uuid : remainingLives.keySet()) {
                 remainingLives.put(uuid, defaultDeathLimit);
             }
+            // 復活待ちタイマーは週次リセットで無効化（全員ライフ満タンに戻すため）
+            revivalTimestamps.clear();
             for (Player p : Bukkit.getOnlinePlayers()) {
                 if (p.getGameMode() == GameMode.SPECTATOR) {
                     releasePlayer(p);
@@ -431,6 +440,7 @@ private void releasePlayer(Player player) {
         return true;
     }
 
+    @SuppressWarnings("deprecation")
     private boolean handleAddLives(Player player, String[] args) {
         UUID uuid = player.getUniqueId();
 
@@ -457,7 +467,7 @@ private void releasePlayer(Player player) {
 
                 if (player.getGameMode() == GameMode.SPECTATOR && newLives > 0) {
                     releasePlayer(player);
-                    revivalTimestamps.remove(uuid);
+                    revivalTimestamps.remove(uuid); // 自分の復活タイマーも解除
                 }
                 saveData();
             } catch (NumberFormatException e) {
@@ -470,6 +480,8 @@ private void releasePlayer(Player player) {
                 UUID targetUuid = target.getUniqueId();
                 remainingLives.put(targetUuid, defaultDeathLimit);
                 player.sendMessage("§a" + target.getName() + " のライフを初期値 (" + defaultDeathLimit + ") にリセットしました。");
+                // オフラインでも復活タイマーを解除しておく
+                revivalTimestamps.remove(targetUuid);
 
                 Player onlineTarget = target.getPlayer();
                 if (onlineTarget != null && onlineTarget.getGameMode() == GameMode.SPECTATOR) {
@@ -501,6 +513,10 @@ private void releasePlayer(Player player) {
                 Player onlineTarget = target.getPlayer();
                 if (onlineTarget != null && onlineTarget.getGameMode() == GameMode.SPECTATOR && newLives > 0) {
                     releasePlayer(onlineTarget);
+                    revivalTimestamps.remove(targetUuid);
+                }
+                // オフライン対象でもライフが正数になったら復活タイマーを解除
+                if (newLives > 0) {
                     revivalTimestamps.remove(targetUuid);
                 }
                 saveData();
@@ -565,10 +581,19 @@ private void checkAndSetSpectatorIfNeeded(Player player) {
 
     // ライフが0以下なら観戦モードチェック
     if (lives <= 0) {
+        // 復活時刻が欠落している場合は自動補完してハングを防止
+        if (revivalTime == 0L) {
+            long delay = TimeUnit.HOURS.toMillis(defaultRevivalTimeHours);
+            long autoSet = now + delay;
+            revivalTimestamps.put(uuid, autoSet);
+            saveData();
+            revivalTime = autoSet;
+        }
         // 復活可能な時間を過ぎていればリリース
         if (revivalTime != 0L && now >= revivalTime) {
             releasePlayer(player);
             revivalTimestamps.remove(uuid);  // 復活タイムスタンプの削除
+            saveData();
         } else {
             // まだ復活時間に達していないなら改めて観戦モードへ
             if (player.getGameMode() != GameMode.SPECTATOR) {
@@ -577,8 +602,14 @@ private void checkAndSetSpectatorIfNeeded(Player player) {
                 player.sendMessage("§c復活までの時間は「/checkrevive」で確認できます！");
             }
         }
+    } else {
+        // ライフがあるのに観戦のままなら復帰させる（週次リセットや手動付与後の不整合解消）
+        if (player.getGameMode() == GameMode.SPECTATOR) {
+            releasePlayer(player);
+            revivalTimestamps.remove(uuid);
+            saveData();
+        }
     }
-    // ライフが残っている場合は特に何もしない
 }
 
 

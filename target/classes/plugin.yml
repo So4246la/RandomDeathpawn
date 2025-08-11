@@ -11,6 +11,12 @@ commands:
   addlives:
     description: "Add or reset lives"
     usage: "/addlives [player] [amount]"
+    permission: randomdeathpawn.admin
   checkrevive:
     description: "Check how long until you can revive"
     usage: "/checkrevive"
+
+permissions:
+  randomdeathpawn.admin:
+    description: "Allows usage of admin commands"
+    default: op

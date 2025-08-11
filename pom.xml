@@ -6,11 +6,11 @@
 
   <groupId>com.example</groupId>
   <artifactId>RandomDeathpawn</artifactId>
-  <version>1.2</version>
+  <version>1.3</version>
   <packaging>jar</packaging>
 
   <name>RandomDeathpawn</name>
-  <description>Weekly life reset plugin with spectator time-limited system - Ver1.2</description>
+  <description>Weekly life reset plugin with spectator time-limited system - Ver1.3</description>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
